@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='neg-detect',  # Replace with your desired package name
-    version='0.1.0',  # Initial version of your package
+    version='0.1.1',  # Initial version of your package
     description='A BERT-based inference module for negation detection (cue, scope) -> planning to add focus and event in the near future',  # Short description
     long_description=open('README.md').read(),  # Make sure README.md exists
     long_description_content_type='text/markdown',  # Format of your README
