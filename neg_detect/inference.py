@@ -11,7 +11,7 @@ class NegBertInference:
     special_tokens = ...
 
     @staticmethod
-    def load_model_and_tokenizer(model_path: str, bert_model: str) -> tuple:
+    def load_model_and_tokenizer(model_path: str, bert_model: str) -> Tuple[Any, Any]:
         """
         Load the fine-tuned model and tokenizer.
         :param model_path:
@@ -23,7 +23,7 @@ class NegBertInference:
         return model, tokenizer
 
     @staticmethod
-    def preprocess_input(tokens: List[List[str]], tokenizer: PreTrainedTokenizer, max_length: int = 128) -> tuple:
+    def preprocess_input(tokens: List[List[str]], tokenizer: PreTrainedTokenizer, max_length: int = 128) -> Tuple[Any, Any]:
         """
         Tokenize batched pre-split input tokens and return word IDs for merging subtokens.
         :param tokens:
@@ -299,7 +299,7 @@ class Pipeline:
         self.special_tokens = {value[1]:value[0] for comp in self.components for value in comp.special_tokens.items()}
         assert len(components) == len(models) == len(tokenizers), "Provide the same number of components, models, and tokenizers."
 
-    def run(self, batch_tokens: List[List[str]], device: str = "cuda:0", max_length: int = 128) -> list[Tuple[list[str], list[str]]]:
+    def run(self, batch_tokens: List[List[str]], device: str = "cuda:0", max_length: int = 128) -> List[Tuple[List[str], List[str]]]:
 
         for idx, component in enumerate(self.components):
             tokenizer = self.tokenizers[idx]
@@ -347,7 +347,7 @@ class Pipeline:
         return result
 
     @staticmethod
-    def pretty_print(result: list[Tuple[list[str], list[str]]]) -> None:
+    def pretty_print(result: List[Tuple[List[str], List[str]]]) -> None:
         for res in result:
             for item1, item2 in zip(res[0], res[1]):
                 print(f"{str(item1):<{15}} {str(item2):<{15}}")
