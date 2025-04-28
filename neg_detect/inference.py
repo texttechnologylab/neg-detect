@@ -294,8 +294,8 @@ class Pipeline:
                 print(f"Loaded {component.__name__} model and tokenizer.")
         else:
             print("Using provided models and tokenizers.")
-            self.models = models
-            self.tokenizers = tokenizers
+        self.models = models
+        self.tokenizers = tokenizers
         self.special_tokens = {value[1]:value[0] for comp in self.components for value in comp.special_tokens.items()}
         assert len(components) == len(models) == len(tokenizers), "Provide the same number of components, models, and tokenizers."
 
