@@ -1,5 +1,9 @@
 # neg-detect
 
+[![PyPI version](https://img.shields.io/pypi/v/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+[![PyPI Python versions](https://img.shields.io/pypi/pyversions/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+
 `neg-detect` is a Python package for detecting negation cues and their scopes in text using fine-tuned BERT models. It provides a pipeline to process batched text inputs, identify negation cues (e.g., "not", "n't"), and determine the scope of negation within sentences. The package leverages the Hugging Face Transformers library and PyTorch for efficient inference.
 
 ## Features
