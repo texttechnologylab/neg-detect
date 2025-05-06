@@ -13,8 +13,7 @@
 - **Batch Processing**: Supports batched inputs for efficient inference.
 - **GPU Support**: Utilizes CUDA for accelerated inference on compatible hardware.
 - **TODO**: In the future there will be negation event and focus detection components added to the Pipeline.
-
-## Installation
+- 🌟✴️🌟 **German Language Support**: The pipeline now supports negation detection in **German** as well as English.
 
 ### Prerequisites
 - Python 3.6 or higher
