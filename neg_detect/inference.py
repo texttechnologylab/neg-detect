@@ -275,8 +275,9 @@ class ScopeBertInference(NegBertInference):
 
 
 class Pipeline:
-    def __init__(self, components: Optional[List[NegBertInference]] = None, models: Optional[List[Any]] = None, tokenizers: Optional[List[Any]] = None):
-        comp_dict = {CueBertInference: "Lelon/8449368577", ScopeBertInference: "Lelon/5556020097"}
+    def __init__(self, components: Optional[List[NegBertInference]] = None, models: Optional[List[Any]] = None, tokenizers: Optional[List[Any]] = None, lang: str = "en"):
+        comp_dict = {"en": {CueBertInference: "Lelon/cue-bert", ScopeBertInference: "Lelon/scope-bert"},
+                     "de": {CueBertInference: "Lelon/cue-bert-german", ScopeBertInference: "Lelon/scope-bert-german"}}
         if components is None:
             components = [CueBertInference, ScopeBertInference]
             print("No components provided, using default components (cue + scope).")
@@ -288,7 +289,7 @@ class Pipeline:
             models, tokenizers = [], []
             print("No models or tokenizers provided, using default models and tokenizers.")
             for component in components:
-                model, tokenizer = component.load_model_and_tokenizer(comp_dict[component], comp_dict[component])
+                model, tokenizer = component.load_model_and_tokenizer(comp_dict[lang][component], comp_dict[lang][component])
                 models.append(model)
                 tokenizers.append(tokenizer)
                 print(f"Loaded {component.__name__} model and tokenizer.")
