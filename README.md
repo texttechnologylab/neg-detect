@@ -46,8 +46,8 @@ batch_tokens = [
     "This is not another test sentence .".split(" ")
 ]
 
-# Initialize pipeline with default models
-pipe = Pipeline()
+# Initialize pipeline with default models [lang: "en" or "de"]
+pipe = Pipeline(lang="en")
 
 # Run inference
 results = pipe.run(batch_tokens)
@@ -88,8 +88,8 @@ For custom models or tokenizers, you can initialize the pipeline with specific c
 from neg_detect import Pipeline, CueBertInference, ScopeBertInference
 
 # Load custom models and tokenizers
-mcue_path = "Lelon/8449368577"
-mscope_path = "Lelon/5556020097"
+mcue_path = "Lelon/cue-bert-german"
+mscope_path = "Lelon/scope-bert-german"
 model_cue, tokenizer_cue = CueBertInference.load_model_and_tokenizer(mcue_path, mcue_path)
 model_scope, tokenizer_scope = ScopeBertInference.load_model_and_tokenizer(mscope_path, mscope_path)
 
@@ -102,7 +102,7 @@ pipe = Pipeline(
 
 # Define input
 batch_tokens = [
-    "This is not another test sentence .".split(" ")
+    "Das ist nicht ein Testsatz .".split(" ")
 ]
 
 # Run inference
