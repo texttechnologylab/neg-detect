@@ -1,5 +1,9 @@
 # neg-detect
 
+[![PyPI version](https://img.shields.io/pypi/v/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+[![PyPI Python versions](https://img.shields.io/pypi/pyversions/neg-detect.svg)](https://pypi.org/project/neg-detect/)
+
 `neg-detect` is a Python package for detecting negation cues and their scopes in text using fine-tuned BERT models. It provides a pipeline to process batched text inputs, identify negation cues (e.g., "not", "n't"), and determine the scope of negation within sentences. The package leverages the Hugging Face Transformers library and PyTorch for efficient inference.
 
 ## Features
@@ -9,8 +13,7 @@
 - **Batch Processing**: Supports batched inputs for efficient inference.
 - **GPU Support**: Utilizes CUDA for accelerated inference on compatible hardware.
 - **TODO**: In the future there will be negation event and focus detection components added to the Pipeline.
-
-## Installation
+- 🌟✴️🌟 **German Language Support**: The pipeline now supports negation detection in **German** as well as English.
 
 ### Prerequisites
 - Python 3.6 or higher
@@ -43,8 +46,8 @@ batch_tokens = [
     "This is not another test sentence .".split(" ")
 ]
 
-# Initialize pipeline with default models
-pipe = Pipeline()
+# Initialize pipeline with default models [lang: "en" or "de"]
+pipe = Pipeline(lang="en")
 
 # Run inference
 results = pipe.run(batch_tokens)
@@ -85,8 +88,8 @@ For custom models or tokenizers, you can initialize the pipeline with specific c
 from neg_detect import Pipeline, CueBertInference, ScopeBertInference
 
 # Load custom models and tokenizers
-mcue_path = "Lelon/8449368577"
-mscope_path = "Lelon/5556020097"
+mcue_path = "Lelon/cue-bert-german"
+mscope_path = "Lelon/scope-bert-german"
 model_cue, tokenizer_cue = CueBertInference.load_model_and_tokenizer(mcue_path, mcue_path)
 model_scope, tokenizer_scope = ScopeBertInference.load_model_and_tokenizer(mscope_path, mscope_path)
 
@@ -99,7 +102,7 @@ pipe = Pipeline(
 
 # Define input
 batch_tokens = [
-    "This is not another test sentence .".split(" ")
+    "Das ist nicht ein Testsatz .".split(" ")
 ]
 
 # Run inference
