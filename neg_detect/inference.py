@@ -1,36 +1,61 @@
+import copy
+import json
+
+from huggingface_hub import hf_hub_download
+import spacy
+from safetensors.torch import load_file
 import torch
-from transformers import AutoModelForTokenClassification, AutoTokenizer, PreTrainedTokenizer
+from sklearn.metrics import classification_report
+from torch.utils.data import DataLoader
+from tqdm import tqdm
+from transformers import AutoModelForTokenClassification, AutoTokenizer, PreTrainedTokenizer, \
+    DataCollatorForTokenClassification, PreTrainedTokenizerBase
 from typing import List, Dict, Any, Tuple, Optional
+import numpy as np
 import os
+
+from .preprocessing import PreprocessorUtility
+from .spacy_utils import process_sent_spacy, upos_dict, dep_dict, get_spacy_model
+from .gat_model import BERTResidualGATv2ContextGatedFusion
 
 
 BP = os.path.realpath(os.path.join(os.path.realpath(__file__), "../../.."))
 
 
-class NegBertInference:
+class BasicInference:
     special_tokens = ...
 
     @staticmethod
-    def load_model_and_tokenizer(model_path: str, bert_model: str) -> Tuple[Any, Any]:
-        """
-        Load the fine-tuned model and tokenizer.
-        :param model_path:
-        :param bert_model:
-        :return:
-        """
-        tokenizer = AutoTokenizer.from_pretrained(bert_model)
-        model = AutoModelForTokenClassification.from_pretrained(model_path)
+    def majority_label(labels: List[str]) -> str:
+        ...
+
+    @classmethod
+    def init_component(cls, model_path: str, device: Any, max_len: Any, **kwargs):
+        ...
+
+    def run(self, batch_tokens: List[List[str]], original_input: Optional[List[List[str]]] = None):
+        ...
+
+    @staticmethod
+    def pretty_print(result: List[List[Dict[str, str]]]) -> None:
+        for sent in result:
+            for tok in sent:
+                print(f"{str(tok['token']):<{15}} {str(tok['label']):<{15}}")
+            print("\n")
+
+
+class NegBertInference(BasicInference):
+
+    @staticmethod
+    def load_model_and_tokenizer(model_path: str, bert_model: str = "prajjwal1/bert-tiny") -> tuple:
+        """Load the fine-tuned model and tokenizer."""
+        tokenizer = AutoTokenizer.from_pretrained(bert_model, trust_remote_code=True)
+        model = AutoModelForTokenClassification.from_pretrained(model_path, trust_remote_code=True)
         return model, tokenizer
 
     @staticmethod
-    def preprocess_input(tokens: List[List[str]], tokenizer: PreTrainedTokenizer, max_length: int = 128) -> Tuple[Any, Any]:
-        """
-        Tokenize batched pre-split input tokens and return word IDs for merging subtokens.
-        :param tokens:
-        :param tokenizer:
-        :param max_length:
-        :return:
-        """
+    def preprocess_input(tokens: List[List[str]], tokenizer: PreTrainedTokenizer, max_length: int = 128) -> tuple:
+        """Tokenize batched pre-split input tokens and return word IDs for merging subtokens."""
         # Tokenize with is_split_into_words=True to match training
         tokenized_inputs = tokenizer(
             tokens,
@@ -49,7 +74,7 @@ class NegBertInference:
         ...
 
     @staticmethod
-    def predict(model: AutoModelForTokenClassification,
+    def predict(model: torch.nn.Module,
                 tokenizer: AutoTokenizer,
                 input_tokens,
                 tokenized_inputs,
@@ -58,16 +83,166 @@ class NegBertInference:
                 device: str = "cuda"):
         ...
 
-class CueBertInference(NegBertInference):
-    special_tokens = {"C": "[CUE]"}
+
+
+class NegBertInferenceGAT(BasicInference):
+
+    @staticmethod
+    def load_model_and_tokenizer(model_path: str,
+                                 model_architecture: Any = BERTResidualGATv2ContextGatedFusion) -> tuple:
+        """Load the fine-tuned model and tokenizer."""
+        if os.path.isdir(model_path):
+            tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+            with open(f"{model_path}/config.json", "r") as f:
+                config = json.load(f)
+            model = model_architecture(
+                bert_id=config.get("bert_id"),
+                id2label=config.get("id2label"),
+                label2id=config.get("label2id"),
+                num_labels=config.get("lcount"),
+                pos_vocab_size=config.get("pos_vocab_size"),  # Update as needed
+                dep_vocab_size=config.get("dep_vocab_size")  # Update as needed
+            )
+            if config.get("vocab_size") != model.bert.config.vocab_size:
+                model.bert.resize_token_embeddings(config.get("vocab_size"))
+            # 3. Load the safetensors file
+            state_dict = load_file(f"{model_path}/model.safetensors")
+
+            # 4. Load the weights into your model
+            missing, unexpected = model.load_state_dict(state_dict, strict=True)
+
+            print("Missing keys:", missing)
+            print("Unexpected keys:", unexpected)
+
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+            weights_path = hf_hub_download(repo_id=model_path, filename="model.safetensors")
+            config_path = hf_hub_download(repo_id=model_path, filename="config.json")
+            with open(config_path, "r") as f:
+                config = json.load(f)
+            model = model_architecture(
+                bert_id=config.get("bert_id"),
+                id2label=config.get("id2label"),
+                label2id=config.get("label2id"),
+                num_labels=config.get("lcount"),
+                pos_vocab_size=config.get("pos_vocab_size"),  # Update as needed
+                dep_vocab_size=config.get("dep_vocab_size")  # Update as needed
+            )
+            if config.get("vocab_size") != model.bert.config.vocab_size:
+                model.bert.resize_token_embeddings(config.get("vocab_size"))
+            state_dict = load_file(weights_path)
+            # 4. Load the weights into your model
+            missing, unexpected = model.load_state_dict(state_dict, strict=True)
+
+            print("Missing keys:", missing)
+            print("Unexpected keys:", unexpected)
+
+        max_length = config.get("max_length")
+
+        spacy_model = get_spacy_model(lang=config.get("spacy_id").split("_")[0])
+        print("spacymodel:", spacy_model, "lang", config.get("spacy_id").split("_")[0])
+
+        return model, tokenizer, spacy_model, max_length, config.get("id2label")
+
+
+    @staticmethod
+    def preprocess_input(tokens: List[List[str]],
+                         original_tokens: List[List[str]],
+                         tokenizer: PreTrainedTokenizer,
+                         spacy_model: Any,
+                         max_length: int = 128):
+        pos_tags = []
+        dep_tags = []
+        edge_indices = []
+        for sent in original_tokens:
+            upos, deps, edge_index = process_sent_spacy(sent, spacy_model)
+            pos_tags.append(upos)
+            dep_tags.append(deps)
+            edge_indices.append(edge_index)
+
+        result = PreprocessorUtility.retokenize_with_pos(tokens=tokens,
+                                                         pos_tags=pos_tags,
+                                                         dep_tags=dep_tags,
+                                                         pos_tag_to_id=upos_dict,
+                                                         dep_tag_to_id=dep_dict[
+                                                             f'{spacy_model.meta.get("lang", "xx")}_{spacy_model.meta.get("name", "unknown")}'],
+                                                         tokenizer=tokenizer,
+                                                         max_seq_length=max_length
+                                                         )
+
+        # result["event_labels"] = examples["event_masks"]
+        # result["focus_labels"] = examples["focus_masks"]
+        result["word_count"] = [len(sent) for sent in tokens]
+        for key in result:
+            try:
+                result[key] = torch.tensor(result[key])
+            except:
+                pass
+        result["edge_index"] = [torch.tensor(edge_index, dtype=torch.int64) for edge_index in edge_indices]
+
+        return result
 
     @staticmethod
     def majority_label(labels: List[str]) -> str:
-        """
-        Return the majority label from a list of labels ('X' or 'C').
-        :param labels:
-        :return:
-        """
+        ...
+
+    @staticmethod
+    def predict(model: AutoModelForTokenClassification,
+                tokenizer: AutoTokenizer,
+                input_tokens,
+                input_ids: torch.Tensor,
+                attention_mask: torch.Tensor,
+                pos_ids: torch.Tensor,
+                dep_ids: torch.Tensor,
+                edge_index: List[torch.Tensor],
+                word_ids: List[int],
+                word_count: List[int],
+                id2label: dict,
+                max_length: int = 128,
+                device: str = "cuda"):
+        ...
+
+
+class CueBertInference(NegBertInference):
+    special_tokens = {"C": "[CUE]"}
+
+    def __init__(self,
+                 model: Optional[Any] = None,
+                 tokenizer: Optional[Any] = None,
+                 max_length: Optional[int] = None,
+                 device: Optional[str] = None
+                 ):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.device = device
+
+        self.model.to(device)
+        self.model.eval()
+
+    @classmethod
+    def init_component(cls, model_path: str, device: Any, max_len: Optional[int] = None, **kwargs):
+        return cls(*CueBertInference.load_model_and_tokenizer(model_path, model_path), device=device, max_length=max_len)
+
+    def run(self,
+            batch_tokens: List[List[str]], original_input: Optional[List[List[str]]] = None):
+        # Preprocess input
+        tokenized_inputs, word_ids = CueBertInference.preprocess_input(batch_tokens, self.tokenizer, self.max_length)
+
+        # Perform inference
+        batch_predictions = CueBertInference.predict(self.model,
+                                                     self.tokenizer,
+                                                     batch_tokens,
+                                                     tokenized_inputs,
+                                                     word_ids,
+                                                     self.max_length,
+                                                     self.device
+                                                     )
+        return batch_predictions
+
+    @staticmethod
+    def majority_label(labels: List[str]) -> str:
+        """Return the majority label from a list of labels ('X' or 'C')."""
         if not labels:
             return "X"  # Default to "X" if no labels
         count_c = labels.count("C")
@@ -82,17 +257,7 @@ class CueBertInference(NegBertInference):
                 word_ids: List[List[int]],
                 max_length: int = 128,
                 device: str = "cuda:0") -> List[List[Dict]]:
-        """
-        Perform prediction on batched inputs, merging subtoken predictions by majority vote.
-        :param model:
-        :param tokenizer:
-        :param input_tokens:
-        :param tokenized_inputs:
-        :param word_ids:
-        :param max_length:
-        :param device:
-        :return:
-        """
+        """Perform inference on batched inputs, merging subtoken predictions by majority vote."""
         # Move inputs to the same device as the model
         tokenized_inputs = {key: val.to(device) for key, val in tokenized_inputs.items()}
 
@@ -139,43 +304,48 @@ class CueBertInference(NegBertInference):
 
         return batch_results
 
-    @staticmethod
-    def main(model_path: str, tok_path: str, device: str = "cuda:0", max_length: int = 128) -> None:
-        # Example batched input
-        batch_tokens = [
-            "Your sample input doesn't go here , i live in the prestreetlondon .".split(" "),
-            "This is another test sentence .".split(" ")
-        ]
-
-        # Load model and tokenizer
-        model, tokenizer = CueBertInference.load_model_and_tokenizer(model_path, tok_path)
-        model = model.to(device)
-        model.eval()  # Set model to evaluation mode
-
-        # Preprocess input
-        tokenized_inputs, word_ids = CueBertInference.preprocess_input(batch_tokens, tokenizer, max_length)
-
-        # Perform inference
-        batch_predictions = CueBertInference.predict(model, tokenizer, batch_tokens, tokenized_inputs, word_ids, max_length, device)
-
-        # Print results
-        print("Inference Results:")
-        for seq_idx, predictions in enumerate(batch_predictions):
-            print(f"\nSequence {seq_idx + 1}:")
-            for result in predictions:
-                print(f"Token: {result['token']}\nLabel: {result['label']}")
 
 
 class ScopeBertInference(NegBertInference):
     special_tokens = {"S": "[SCO]"}
 
+    def __init__(self,
+                 model: Optional[Any] = None,
+                 tokenizer: Optional[Any] = None,
+                 max_length: Optional[int] = None,
+                 device: Optional[str] = None
+                 ):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.device = device
+
+        self.model.to(device)
+        self.model.eval()
+
+    @classmethod
+    def init_component(cls, model_path: str, device: Any, max_len: Optional[int] = None, **kwargs):
+        return cls(*ScopeBertInference.load_model_and_tokenizer(model_path, model_path), device=device, max_length=max_len)
+
+    def run(self,
+            batch_tokens: List[List[str]], original_input: Optional[List[List[str]]] = None):
+        # Preprocess input
+        tokenized_inputs, word_ids = ScopeBertInference.preprocess_input(batch_tokens, self.tokenizer, self.max_length)
+
+        # Perform inference
+        batch_predictions = ScopeBertInference.predict(self.model,
+                                                     self.tokenizer,
+                                                     batch_tokens,
+                                                     tokenized_inputs,
+                                                     word_ids,
+                                                     self.max_length,
+                                                     self.device
+                                                     )
+        return batch_predictions
+
     @staticmethod
     def majority_label(labels: List[str]) -> str:
-        """
-        Return the majority label from a list of labels ('S' or 'C').
-        :param labels:
-        :return:
-        """
+        """Return the majority label from a list of labels ('X' or 'C')."""
         if not labels:
             return "X"  # Default to "X" if no labels
         count_c = labels.count("S")
@@ -190,17 +360,7 @@ class ScopeBertInference(NegBertInference):
                 word_ids: List[List[int]],
                 max_length: int = 128,
                 device: str = "cuda:0") -> List[List[Dict]]:
-        """
-        Perform inference on batched inputs, merging subtoken predictions by majority vote.
-        :param model:
-        :param tokenizer:
-        :param input_tokens:
-        :param tokenized_inputs:
-        :param word_ids:
-        :param max_length:
-        :param device:
-        :return:
-        """
+        """Perform inference on batched inputs, merging subtoken predictions by majority vote."""
         # Move inputs to the same device as the model
         tokenized_inputs = {key: val.to(device) for key, val in tokenized_inputs.items()}
 
@@ -211,7 +371,6 @@ class ScopeBertInference(NegBertInference):
 
         # Convert logits to predictions
         predictions = torch.argmax(logits, dim=-1).cpu().numpy()  # Shape: (batch_size, sequence_length)
-
         # Process each sequence in the batch
         batch_results = []
         for seq_idx, (seq_tokens, seq_word_ids, seq_predictions) in enumerate(zip(input_tokens, word_ids, predictions)):
@@ -247,103 +406,283 @@ class ScopeBertInference(NegBertInference):
 
         return batch_results
 
-    @staticmethod
-    def main(model_path: str, tok_path: str, device: str = "cuda:0", max_length: int = 128) -> None:
-        # Example batched input
-        batch_tokens = [
-            "Your sample input does [CUE] n't go here , i live in the prestreetlondon .".split(" "),
-            "This is not another test sentence .".split(" ")
-        ]
 
-        # Load model and tokenizer
-        model, tokenizer = ScopeBertInference.load_model_and_tokenizer(model_path, tok_path)
-        model = model.to(device)
-        model.eval()  # Set model to evaluation mode
 
+class CueBertInferenceGAT(NegBertInferenceGAT):
+    special_tokens = {"C": "[CUE]"}
+
+    def __init__(self,
+                 model: Optional[Any] = None,
+                 tokenizer: Optional[Any] = None,
+                 spacy_model: Optional[Any] = None,
+                 max_length: Optional[int] = None,
+                 id2label: Optional[dict] = None,
+                 device: Optional[str] = None
+                 ):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.spacy_model = spacy_model
+        self.max_length = max_length
+        self.id2label = id2label
+        self.device = device
+
+        self.model.to(device)
+        self.model.eval()
+
+    @classmethod
+    def init_component(cls,
+                       model_path: str,
+                       device: Any,
+                       max_len: Optional[int] = None,
+                       model_architecture: Any = BERTResidualGATv2ContextGatedFusion,
+                       **kwargs):
+        return cls(*CueBertInferenceGAT.load_model_and_tokenizer(model_path, model_architecture), device=device)
+
+    def run(self, batch_tokens: List[List[str]], original_input: Optional[List[List[str]]] = None):
         # Preprocess input
-        tokenized_inputs, word_ids = ScopeBertInference.preprocess_input(batch_tokens, tokenizer, max_length)
+        inputs = CueBertInferenceGAT.preprocess_input(batch_tokens, original_input, self.tokenizer, self.spacy_model, self.max_length)
 
         # Perform inference
-        batch_predictions = ScopeBertInference.predict(model, tokenizer, batch_tokens, tokenized_inputs, word_ids, max_length, device)
+        batch_predictions = CueBertInferenceGAT.predict(self.model,
+                                                        self.tokenizer,
+                                                        batch_tokens,
+                                                        inputs["input_ids"],
+                                                        inputs["attention_mask"],
+                                                        inputs["pos_ids"],
+                                                        inputs["dep_ids"],
+                                                        inputs["edge_index"],
+                                                        inputs["word_ids"],
+                                                        inputs["word_count"],
+                                                        self.id2label,
+                                                        self.max_length,
+                                                        self.device)
+        return batch_predictions
 
-        # Print results
-        print("Inference Results:")
-        for seq_idx, predictions in enumerate(batch_predictions):
-            print(f"\nSequence {seq_idx + 1}:")
-            for result in predictions:
-                print(f"Token: {result['token']}\nLabel: {result['label']}")
+    @staticmethod
+    def majority_label(labels: List[str]) -> str:
+        """Return the majority label from a list of labels ('X' or 'C')."""
+        if not labels:
+            return "X"  # Default to "X" if no labels
+        count_c = labels.count("C")
+        count_x = labels.count("X")
+        return "C" if count_c >= count_x else "X"
+
+    @staticmethod
+    def predict(model: torch.nn.Module,
+                tokenizer: AutoTokenizer,
+                input_tokens,
+                input_ids: torch.Tensor,
+                attention_mask: torch.Tensor,
+                pos_ids: torch.Tensor,
+                dep_ids: torch.Tensor,
+                edge_index: List[torch.Tensor],
+                word_ids: List[int],
+                word_count: List[int],
+                id2label: dict,
+                max_length: int = 128,
+                device: str = "cuda:0") -> List[List[Dict]]:
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
+        pos_ids = pos_ids.to(device)
+        dep_ids = dep_ids.to(device)
+        for idx, edge in enumerate(edge_index):
+            edge_index[idx] = edge.to(device)
+
+        # Perform inference
+        with torch.no_grad():
+            outputs = model(input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            pos_ids=pos_ids,
+                            dep_ids=dep_ids,
+                            edge_index=edge_index,
+                            word_ids=word_ids,
+                            word_count=word_count,
+                            )
+            logits = outputs.logits  # Shape: (batch_size, sequence_length, num_labels)
+
+        # Convert logits to predictions
+        predictions = torch.argmax(logits, dim=-1).cpu().numpy()  # Shape: (batch_size, sequence_length)
+
+        # Process each sequence in the batch
+        batch_results = []
+        idx = 0
+        for sent in input_tokens:
+            # Merge subtoken predictions to original tokens
+            results = []
+            for token in sent:
+                results.append({"token": token, "label": id2label[f"{int(predictions[idx])}"]})
+                idx += 1
+            batch_results.append(results)
+
+        return batch_results
+
+
+
+class ScopeBertInferenceGAT(NegBertInferenceGAT):
+    special_tokens = {"S": "[SCO]"}
+
+    def __init__(self,
+                 model: Optional[Any] = None,
+                 tokenizer: Optional[Any] = None,
+                 spacy_model: Optional[Any] = None,
+                 max_length: Optional[int] = None,
+                 id2label: Optional[dict] = None,
+                 device: Optional[str] = None
+                 ):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.spacy_model = spacy_model
+        self.max_length = max_length
+        self.id2label = id2label
+        self.device = device
+        self.model.eval()
+        self.model.to(device)
+
+
+    @classmethod
+    def init_component(cls,
+                       model_path: str,
+                       device: Any,
+                       max_len: Optional[int] = None,
+                       model_architecture: Any = BERTResidualGATv2ContextGatedFusion,
+                       **kwargs):
+        return cls(*ScopeBertInferenceGAT.load_model_and_tokenizer(model_path, model_architecture), device=device)
+
+    def run(self, batch_tokens: List[List[str]], original_input: Optional[List[List[str]]] = None):
+        # Preprocess input
+        inputs = ScopeBertInferenceGAT.preprocess_input(batch_tokens, original_input, self.tokenizer, self.spacy_model, self.max_length)
+        # print(batch_tokens)
+        # Perform inference
+        batch_predictions = ScopeBertInferenceGAT.predict(model=self.model,
+                                                        tokenizer=self.tokenizer,
+                                                        input_tokens=batch_tokens,
+                                                        input_ids=inputs["input_ids"],
+                                                        attention_mask=inputs["attention_mask"],
+                                                        pos_ids=inputs["pos_ids"],
+                                                        dep_ids=inputs["dep_ids"],
+                                                        edge_index=inputs["edge_index"],
+                                                        word_ids=inputs["word_ids"],
+                                                        word_count=inputs["word_count"],
+                                                        id2label=self.id2label,
+                                                        max_length=self.max_length,
+                                                        device=self.device)
+        return batch_predictions
+
+    @staticmethod
+    def predict(model: torch.nn.Module,
+                tokenizer: AutoTokenizer,
+                input_tokens,
+                input_ids: torch.Tensor,
+                attention_mask: torch.Tensor,
+                pos_ids: torch.Tensor,
+                dep_ids: torch.Tensor,
+                edge_index: List[torch.Tensor],
+                word_ids: List[int],
+                word_count: List[int],
+                id2label: dict,
+                max_length: int = 128,
+                device: str = "cuda:0") -> List[List[Dict]]:
+        input_ids = input_ids.to(device)
+        attention_mask = attention_mask.to(device)
+        pos_ids = pos_ids.to(device)
+        dep_ids = dep_ids.to(device)
+        for idx, edge in enumerate(edge_index):
+            edge_index[idx] = edge.to(device)
+
+        # Perform inference
+        with torch.no_grad():
+            outputs = model(input_ids=input_ids,
+                            attention_mask=attention_mask,
+                            pos_ids=pos_ids,
+                            dep_ids=dep_ids,
+                            edge_index=edge_index,
+                            word_ids=word_ids,
+                            word_count=word_count,
+                            )
+            logits = outputs.logits  # Shape: (batch_size, sequence_length, num_labels)
+
+        # Convert logits to predictions
+        predictions = torch.argmax(logits, dim=1).cpu().numpy()  # Shape: (batch_size, sequence_length)
+        # Process each sequence in the batch
+        batch_results = []
+        idx = 0
+        for sent in input_tokens:
+            # Merge subtoken predictions to original tokens
+            results = []
+            for token in sent:
+                results.append({"token": token, "label": id2label[f"{int(predictions[idx])}"]})
+                idx += 1
+            batch_results.append(results)
+
+        return batch_results
+
 
 
 class Pipeline:
-    def __init__(self, components: Optional[List[NegBertInference]] = None, models: Optional[List[Any]] = None, tokenizers: Optional[List[Any]] = None):
-        comp_dict = {CueBertInference: "Lelon/8449368577", ScopeBertInference: "Lelon/5556020097"}
-        if components is None:
-            components = [CueBertInference, ScopeBertInference]
-            print("No components provided, using default components (cue + scope).")
-        else:
-            print("Using provided components.")
+    def __init__(self,
+                 components: List[BasicInference],
+                 model_paths: List[str],
+                 device: str = "cuda:0",
+                 max_length: int = 128,
+                 replace: bool = True,
+                 model_architecture: Any = BERTResidualGATv2ContextGatedFusion):
+        self.replace = replace
+        self.components = []
+        for component, model_path in zip(components, model_paths):
+            self.components.append(component.init_component(model_path=model_path, device=device, max_len=max_length, model_architecture=model_architecture))
 
-        self.components = components
-        if models is None or tokenizers is None:
-            models, tokenizers = [], []
-            print("No models or tokenizers provided, using default models and tokenizers.")
-            for component in components:
-                model, tokenizer = component.load_model_and_tokenizer(comp_dict[component], comp_dict[component])
-                models.append(model)
-                tokenizers.append(tokenizer)
-                print(f"Loaded {component.__name__} model and tokenizer.")
-        else:
-            print("Using provided models and tokenizers.")
-        self.models = models
-        self.tokenizers = tokenizers
         self.special_tokens = {value[1]:value[0] for comp in self.components for value in comp.special_tokens.items()}
-        assert len(components) == len(models) == len(tokenizers), "Provide the same number of components, models, and tokenizers."
 
-    def run(self, batch_tokens: List[List[str]], device: str = "cuda:0", max_length: int = 128) -> List[Tuple[List[str], List[str]]]:
-
+    def run(self, batch_tokens: List[List[str]]) -> list[
+        Tuple[list[str], list[str]]]:
+        back_up_seq = copy.deepcopy(batch_tokens)
+        replacements = {}
         for idx, component in enumerate(self.components):
-            tokenizer = self.tokenizers[idx]
-            model = self.models[idx]
-            model = model.to(device)
-            model.eval()
-            tokenized_inputs, word_ids = component.preprocess_input(batch_tokens,
-                                                                    tokenizer,
-                                                                    max_length)
-            batch_predictions = component.predict(model,
-                                                  tokenizer,
-                                                  batch_tokens,
-                                                  tokenized_inputs,
-                                                  word_ids,
-                                                  max_length,
-                                                  device)
+            batch_predictions = component.run(batch_tokens, back_up_seq)
             batch_tokens = []
             for seq_idx, predictions in enumerate(batch_predictions):
                 batch_seq = []
-                for result in predictions:
-                    if result['label'] in component.special_tokens:
-                        batch_seq.append(component.special_tokens[result['label']])
-                    batch_seq.append(result['token'])
+                for word_idx, result in enumerate(predictions):
+                    if self.replace:
+                        if result['label'] in component.special_tokens:
+                            batch_seq.append(component.special_tokens[result['label']])
+                            replacements[(seq_idx, word_idx)] = back_up_seq[seq_idx][word_idx]
+                        else:
+                            batch_seq.append(result['token'])
+                    else:
+                        if result['label'] in component.special_tokens:
+                            batch_seq.append(component.special_tokens[result['label']])
+                        batch_seq.append(result['token'])
                 batch_tokens.append(batch_seq)
 
         result = []
-        for seq_idx, predictions in enumerate(batch_tokens):
-            clean_seq = []
-            labels = []
-            next_label = "X"
-            for token in predictions:
-                if token in self.special_tokens:
-                    next_label = self.special_tokens[token]
-                else:
-                    clean_seq.append(token)
-                    labels.append(next_label)
-                    next_label = "X"
 
-            """print()
-            for item1, item2 in zip(clean_seq, labels):
-                print(f"{str(item1):<{15}} {str(item2):<{15}}")
-            print(predictions)"""
-            result.append((clean_seq, labels))
+        if self.replace:
+            for seq_idx, predictions in enumerate(batch_tokens):
+                clean_seq = []
+                labels = []
+                for word_idx, token in enumerate(predictions):
+                    if token in self.special_tokens:
+                        clean_seq.append(replacements[(seq_idx, word_idx)])
+                        labels.append(self.special_tokens[token])
+                    else:
+                        clean_seq.append(token)
+                        labels.append("X")
+                result.append((clean_seq, labels))
+        else:
+            for seq_idx, predictions in enumerate(batch_tokens):
+                clean_seq = []
+                labels = []
+                next_label = "X"
+                for token in predictions:
+                    if token in self.special_tokens:
+                        next_label = self.special_tokens[token]
+                    else:
+                        clean_seq.append(token)
+                        labels.append(next_label)
+                        next_label = "X"
 
+                result.append((clean_seq, labels))
         return result
 
     @staticmethod
@@ -353,24 +692,3 @@ class Pipeline:
                 print(f"{str(item1):<{15}} {str(item2):<{15}}")
             print()
 
-    @staticmethod
-    def main():
-        mcue_path = "Lelon/8449368577"
-        mscope_path = "Lelon/5556020097"
-        model_cue, tokenizer_cue = CueBertInference.load_model_and_tokenizer(mcue_path, mcue_path)
-        model_scope, tokenizer_scope = ScopeBertInference.load_model_and_tokenizer(mscope_path, mscope_path)
-        pipe = Pipeline(components=[CueBertInference, ScopeBertInference],
-                        models=[model_cue, model_scope],
-                        tokenizers=[tokenizer_cue, tokenizer_scope])
-
-        batch_tokens = [
-            "Your sample input does n't go here , i live in the prestreetlondon .".split(" "),
-            "This is not another test sentence .".split(" "),
-            ['Second', ',', 'T', 'cells', ',', 'which', 'lack', 'CD45', 'and', 'can', 'not', 'signal', 'via', 'the', 'TCR', ',', 'supported', 'higher', 'levels', 'of', 'viral', 'replication', 'and', 'gene', 'expression', '.'],
-            ['Our', 'results', 'indicate', 'that', 'I', 'kappa', 'b', 'beta', ',', 'but', '[CUE]', 'not', 'I', 'kappa', 'B', 'alpha', ',', 'is', 'required', 'for', 'the', 'signal', '-', 'dependent', 'activation', 'of', 'NF', '-', 'kappa', 'B', 'in', 'fibroblasts', '.']
-        ]
-
-        Pipeline.pretty_print(pipe.run(batch_tokens))
-
-if __name__ == "__main__":
-    Pipeline.main()

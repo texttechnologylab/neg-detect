@@ -1,2 +1,6 @@
 torch
 transformers
+spacy
+scikit-learn
+ufal.udpipe
+torch-geometric
