@@ -11,26 +11,32 @@ class PipelineTests:
     @staticmethod
     def pipeline_english_test():
         print("English Inference Baseline")
-        mcue_path = f"{BP}/data/MODELS/CUE/gcn_cue_english_deberta_v2_pb_foc"
-        mscope_path = f"{BP}/data/MODELS/SCOPE/gcn_scope_english_deberta_replace_v2_bioscope_abstracts"
+        mcue_path = "Lelon/cue-en-conan"
+        mscope_path = "Lelon/scope-en-bioscope_abstracts"
         pipe = Pipeline(components=[CueBertInference, ScopeBertInference],
                         model_paths=[mcue_path, mscope_path],
                         device="cuda:0",
                         max_length=128)
 
-        batch_tokens = [
+        """batch_tokens = [
             ['In', 'contrast', 'to', 'anti-CD3/IL-2-activated', 'LN', 'cells', ',', 'adoptive', 'transfer', 'of',
              'freshly', 'isolated', 'tumor-draining', 'LN', 'T', 'cells', 'has', 'no', 'therapeutic', 'activity',
              '.'],
             ['The', 'majority', 'of', 'these', 'TCC', 'exhibited', 'a', 'strongly', 'polarized', 'Th2', 'cytokine',
              'profile', ',', 'and', 'the', 'production', 'of', 'IFN-gamma', 'could', 'not', 'be', 'induced', 'by',
              'exogenous', 'IL-12', '.']
+        ]"""
+        batch_tokens = [
+            "This is not an example for testing, it is also not an example for multi negation testing and i never ate spinach .".split(" "),
+            ['In', 'contrast', 'to', 'anti-CD3/IL-2-activated', 'LN', 'cells', ',', 'adoptive', 'transfer', 'of',
+             'freshly', 'isolated', 'tumor-draining', 'LN', 'T', 'cells', 'has', 'no', 'therapeutic', 'activity',
+             '.'],
         ]
-        """res = pipe.run(batch_tokens)
-        Pipeline.pretty_print(res)"""
+        res = pipe.run(batch_tokens)
+        Pipeline.pretty_print(res)
 
-        mcue_path = f"{BP}/data/MODELS/CUE_GAT/gcn_cue_english_debertabase_residual_gatv2_attentiongate_pb_foc"
-        mscope_path = f"{BP}/data/MODELS/SCOPE_GAT/gcn_scope_english_debertabase_replace_residual_gatv2_attentiongate_bioscope_abstracts"
+        mcue_path = "Lelon/cue-gat-en-socc"
+        mscope_path = "Lelon/scope-gat-en-bioscope_abstracts"
         pipe = Pipeline(components=[CueBertInferenceGAT, ScopeBertInferenceGAT],
                         model_paths=[mcue_path, mscope_path],
                         device="cuda:0",
@@ -97,12 +103,18 @@ class PipelineTests:
         batch_tokens = [
             ['The', 'majority', 'of', 'these', 'TCC', 'exhibited', 'a', 'strongly', 'polarized', 'Th2', 'cytokine',
              'profile', ',', 'and', 'the', 'production', 'of', 'IFN-gamma', 'could', '[CUE]', 'be', 'induced', 'by',
-             'exogenous', 'IL-12', '.']
+             'exogenous', 'IL-12', '.'],
+            ['In', 'contrast', 'to', 'anti-CD3/IL-2-activated', 'LN', 'cells', ',', 'adoptive', 'transfer', 'of',
+             'freshly', 'isolated', 'tumor-draining', 'LN', 'T', 'cells', 'has', '[CUE]', 'therapeutic', 'activity',
+             '.']
         ]
         original_input = [
             ['The', 'majority', 'of', 'these', 'TCC', 'exhibited', 'a', 'strongly', 'polarized', 'Th2', 'cytokine',
              'profile', ',', 'and', 'the', 'production', 'of', 'IFN-gamma', 'could', 'not', 'be', 'induced', 'by',
-             'exogenous', 'IL-12', '.']
+             'exogenous', 'IL-12', '.'],
+            ['In', 'contrast', 'to', 'anti-CD3/IL-2-activated', 'LN', 'cells', ',', 'adoptive', 'transfer', 'of',
+             'freshly', 'isolated', 'tumor-draining', 'LN', 'T', 'cells', 'has', 'no', 'therapeutic', 'activity',
+             '.']
         ]
 
         cb_inf = ScopeBertInference.init_component(model_path, device, max_length)

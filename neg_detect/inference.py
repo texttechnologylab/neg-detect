@@ -17,6 +17,7 @@ import os
 from .preprocessing import PreprocessorUtility
 from .spacy_utils import process_sent_spacy, upos_dict, dep_dict, get_spacy_model
 from .gat_model import BERTResidualGATv2ContextGatedFusion
+from .pipeline_utils import split_sequence as splitter
 
 
 BP = os.path.realpath(os.path.join(os.path.realpath(__file__), "../../.."))
@@ -617,78 +618,76 @@ class ScopeBertInferenceGAT(NegBertInferenceGAT):
         return batch_results
 
 
-
 class Pipeline:
     def __init__(self,
                  components: List[BasicInference],
                  model_paths: List[str],
                  device: str = "cuda:0",
                  max_length: int = 128,
-                 replace: bool = True,
                  model_architecture: Any = BERTResidualGATv2ContextGatedFusion):
-        self.replace = replace
         self.components = []
         for component, model_path in zip(components, model_paths):
             self.components.append(component.init_component(model_path=model_path, device=device, max_len=max_length, model_architecture=model_architecture))
 
         self.special_tokens = {value[1]:value[0] for comp in self.components for value in comp.special_tokens.items()}
 
-    def run(self, batch_tokens: List[List[str]]) -> list[
-        Tuple[list[str], list[str]]]:
-        back_up_seq = copy.deepcopy(batch_tokens)
-        replacements = {}
+    def run(self, batch_tokens: List[List[str]]) -> dict:
+        base_layer = copy.deepcopy(batch_tokens)
+        parts = {"cue": [[], [], []],
+                 "scope": [[], [], []],
+                 # "focus": (scope_layer, []),
+                 # "event": (scope_layer, [])
+                 }
+        new_mapping = [*range(len(base_layer))]
+        batch_seq = base_layer
         for idx, component in enumerate(self.components):
-            batch_predictions = component.run(batch_tokens, back_up_seq)
-            batch_tokens = []
-            for seq_idx, predictions in enumerate(batch_predictions):
-                batch_seq = []
-                for word_idx, result in enumerate(predictions):
-                    if self.replace:
-                        if result['label'] in component.special_tokens:
-                            batch_seq.append(component.special_tokens[result['label']])
-                            replacements[(seq_idx, word_idx)] = back_up_seq[seq_idx][word_idx]
-                        else:
-                            batch_seq.append(result['token'])
+            part_id = list(parts.keys())[idx]
+            parts[part_id][1] = copy.deepcopy(new_mapping)
+            parts[part_id][0] = copy.deepcopy(batch_seq)
+            batch_predictions = component.run(parts[part_id][0], [base_layer[orig] for orig in parts[part_id][1]])
+            new_mapping = []
+            split_sequences = []
+            if part_id == "cue":
+                for seq_idx, predictions in enumerate(batch_predictions):
+                    for special_label in component.special_tokens:
+                        new_sequences = splitter(predictions, special_label)
+                        split_sequences.extend(new_sequences)
+                        for seq in new_sequences:
+                            new_mapping.append(parts[part_id][1][seq_idx])
+            else:
+                split_sequences = batch_predictions
+                new_mapping = parts[part_id][1]
+            batch_seq = []
+            for split_sequence in split_sequences:
+                target = []
+                for word_idx, result in enumerate(split_sequence):
+                    if result['label'] in component.special_tokens:
+                        target.append(component.special_tokens[result['label']])
                     else:
-                        if result['label'] in component.special_tokens:
-                            batch_seq.append(component.special_tokens[result['label']])
-                        batch_seq.append(result['token'])
-                batch_tokens.append(batch_seq)
+                        target.append(result['token'])
+                batch_seq.append(target)
+            parts[part_id][2] = batch_seq
 
-        result = []
+        # print(*parts.items())
+        result = {i: [] for i in range(len(batch_tokens))}
+        for idx, seq in enumerate(parts["scope"][2]):
+            result[parts["scope"][1][idx]].append(seq)
 
-        if self.replace:
-            for seq_idx, predictions in enumerate(batch_tokens):
-                clean_seq = []
-                labels = []
-                for word_idx, token in enumerate(predictions):
-                    if token in self.special_tokens:
-                        clean_seq.append(replacements[(seq_idx, word_idx)])
-                        labels.append(self.special_tokens[token])
-                    else:
-                        clean_seq.append(token)
-                        labels.append("X")
-                result.append((clean_seq, labels))
-        else:
-            for seq_idx, predictions in enumerate(batch_tokens):
-                clean_seq = []
-                labels = []
-                next_label = "X"
-                for token in predictions:
-                    if token in self.special_tokens:
-                        next_label = self.special_tokens[token]
-                    else:
-                        clean_seq.append(token)
-                        labels.append(next_label)
-                        next_label = "X"
-
-                result.append((clean_seq, labels))
+        result["original"] = batch_tokens
+        # print(*result.items(), sep="\n")
         return result
 
     @staticmethod
-    def pretty_print(result: List[Tuple[List[str], List[str]]]) -> None:
-        for res in result:
-            for item1, item2 in zip(res[0], res[1]):
-                print(f"{str(item1):<{15}} {str(item2):<{15}}")
+    def pretty_print(result: dict) -> None:
+        mappings = {"[SCO]": "S", "[CUE]": "C"}
+        original = result["original"]
+        for i in range(len(original)):
+            for j, items in enumerate(zip(*[sent for sent in result[i]])):
+                s = f"{original[i][j]:<{30}}"
+                for item in items:
+                    item = "X" if item not in mappings else mappings[item]
+                    s += f" {item:<{5}}"
+                print(s)
             print()
+
 
