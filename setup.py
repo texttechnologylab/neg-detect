@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='neg-detect',  # Replace with your desired package name
-    version='0.1.4',  # Initial version of your package
+    version='0.1.5',  # Initial version of your package
     description='A BERT-based inference module for negation detection (cue, scope) -> planning to add focus and event in the near future',  # Short description
     long_description=open('README.md').read(),  # Make sure README.md exists
     long_description_content_type='text/markdown',  # Format of your README
@@ -12,7 +12,11 @@ setup(
     packages=find_packages(),
     install_requires=[
         'torch>=1.0.0',
-        'transformers>=4.0.0'
+        'transformers>=4.0.0',
+        'spacy>=3.7.6',
+        'scikit-learn>=1.5.2',
+        'ufal.udpipe>=1.3.1.1',
+        'torch-geometric>=2.6.1'
     ],  # Add other dependencies if required
     classifiers=[
         'Programming Language :: Python :: 3',
