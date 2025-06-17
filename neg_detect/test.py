@@ -50,8 +50,8 @@ class PipelineTests:
 
     @staticmethod
     def pipeline_german_test():
-        mcue_path = f"{BP}/data/MODELS/CUEDE/gcn_cue_de_EuroBERT_EuroBERT-210m_v2_pb_foc"
-        mscope_path = f"{BP}/data/MODELS/SCOPEDE/gcn_scope_de_EuroBERT_EuroBERT-210m_v2_dt_neg"
+        mcue_path = "Lelon/cue-de-conan"
+        mscope_path = "Lelon/scope-de-bioscope_abstracts"
         pipe = Pipeline(components=[CueBertInference, ScopeBertInference],
                         model_paths=[mcue_path, mscope_path],
                         device="cuda:0",
@@ -59,15 +59,14 @@ class PipelineTests:
 
         batch_tokens = [
             "Ich werde heute nicht mehr nach Hause fahren .".split(" "),
-            "Ich sage dir nicht , dass du nett bist , aber ich umarme dich .".split(" "),
-            "Oskar findet du bist nicht sehr nett , aber ich denke du bist intelligent .".split(" ")
+            "Ich sage dir nicht , dass du nicht nett bist , aber ich umarme dich auch nicht .".split(" ")
         ]
 
         res = pipe.run(batch_tokens)
         Pipeline.pretty_print(res)
 
-        mcue_path = f"{BP}/data/MODELS/CUE_GATDE/gcn_cue_de_EuroBERT_EuroBERT-210m_residual_gatv2_attentiongate_pb_foc"
-        mscope_path = f"{BP}/data/MODELS/SCOPE_GATDE/gcn_scope_de_EuroBERT_EuroBERT-210m_residual_gatv2_attentiongate_dt_neg"
+        mcue_path = "Lelon/cue-gat-de-bioscope_abstracts"
+        mscope_path = "Lelon/scope-gat-de-bioscope_abstracts"
         pipe = Pipeline(components=[CueBertInferenceGAT, ScopeBertInferenceGAT],
                         model_paths=[mcue_path, mscope_path],
                         device="cuda:0",
