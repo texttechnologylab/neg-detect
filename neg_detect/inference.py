@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModelForTokenClassification, AutoTokenizer, PreTrainedTokenizer, \
     DataCollatorForTokenClassification, PreTrainedTokenizerBase
-from typing import List, Dict, Any, Tuple, Optional
+from typing import List, Dict, Any, Tuple, Optional, Literal
 import numpy as np
 import os
 
@@ -631,6 +631,27 @@ class Pipeline:
 
         self.special_tokens = {value[1]:value[0] for comp in self.components for value in comp.special_tokens.items()}
 
+    @classmethod
+    def from_language(cls,
+                      lang: Literal["en", "de", "hi", "zh", "jap", "ru", "nl", "it", "es", "fr", "it"] = "en",
+                      mode: Literal["base", "gat"] = "base",
+                      ds: Literal["conan", "sfu", "pb_foc", "bioscope_abstracts", "bioscope_full", "socc", "dt_neg"] = "conan",
+                      device: str = "cuda:0",
+                      max_length: int = 128):
+        if mode == "base":
+            components = [CueBertInference, ScopeBertInference]
+            models = [f"Lelon/cue-{lang}-{ds}", f"Lelon/scope-{lang}-{ds}"]
+        else:
+            components = [CueBertInferenceGAT, ScopeBertInferenceGAT]
+            models = [f"Lelon/cue-gat-{lang}-{ds}", f"Lelon/scope-gat-{lang}-{ds}"]
+
+        return cls(components=components,
+                   model_paths=models,
+                   device=device,
+                   max_length=max_length,
+                   model_architecture=BERTResidualGATv2ContextGatedFusion)
+
+
     def run(self, batch_tokens: List[List[str]]) -> dict:
         base_layer = copy.deepcopy(batch_tokens)
         parts = {"cue": [[], [], []],
@@ -682,9 +703,9 @@ class Pipeline:
         mappings = {"[SCO]": "S", "[CUE]": "C"}
         original = result["original"]
         for i in range(len(original)):
-            for j, items in enumerate(zip(*[sent for sent in result[i]])):
-                s = f"{original[i][j]:<{30}}"
-                for item in items:
+            for items in zip(*[sent for sent in [original[i]] + result[i]]):
+                s = f"{items[0]:<{30}}"
+                for item in items[1:]:
                     item = "X" if item not in mappings else mappings[item]
                     s += f" {item:<{5}}"
                 print(s)

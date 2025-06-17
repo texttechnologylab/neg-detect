@@ -65,7 +65,7 @@ class PipelineTests:
         res = pipe.run(batch_tokens)
         Pipeline.pretty_print(res)
 
-        mcue_path = "Lelon/cue-gat-de-bioscope_abstracts"
+        mcue_path = "Lelon/cue-gat-de-conan"
         mscope_path = "Lelon/scope-gat-de-bioscope_abstracts"
         pipe = Pipeline(components=[CueBertInferenceGAT, ScopeBertInferenceGAT],
                         model_paths=[mcue_path, mscope_path],
