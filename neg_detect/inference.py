@@ -633,7 +633,7 @@ class Pipeline:
 
     @classmethod
     def from_language(cls,
-                      lang: Literal["en", "de", "hi", "zh", "jap", "ru", "nl", "it", "es", "fr", "it"] = "en",
+                      lang: Literal["en", "de", "hi", "zh", "jap", "ru", "nl", "es", "fr", "it", "ar"] = "en",
                       mode: Literal["base", "gat"] = "base",
                       ds: Literal["conan", "sfu", "pb_foc", "bioscope_abstracts", "bioscope_full", "socc", "dt_neg"] = "conan",
                       device: str = "cuda:0",
