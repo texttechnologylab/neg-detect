@@ -665,7 +665,10 @@ class Pipeline:
             part_id = list(parts.keys())[idx]
             parts[part_id][1] = copy.deepcopy(new_mapping)
             parts[part_id][0] = copy.deepcopy(batch_seq)
-            batch_predictions = component.run(parts[part_id][0], [base_layer[orig] for orig in parts[part_id][1]])
+            if parts[part_id][0] == []:
+                batch_predictions = []
+            else:
+                batch_predictions = component.run(parts[part_id][0], [base_layer[orig] for orig in parts[part_id][1]])
             new_mapping = []
             split_sequences = []
             if part_id == "cue":
