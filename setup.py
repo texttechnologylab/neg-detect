@@ -8,7 +8,7 @@ setup(
     long_description_content_type='text/markdown',  # Format of your README
     author='Leon Hammerla',  # Replace with your name
     author_email='8i40irjqx@mozmail.com',  # Replace with your email
-    url='https://github.com/LeonHammerla/neg-detect',  # Replace with your repo URL (if available)
+    url='https://github.com/texttechnologylab/neg-detect',  # Replace with your repo URL (if available)
     packages=find_packages(),
     install_requires=[
         'torch>=1.0.0',
